@@ -48,8 +48,6 @@ machine Worker {
     }
 
     state WaitForClaimResponse {
-      ignore eSubmitTaskReq; // dedup 
-
       on eClaimTaskResp do (status: tClaimTaskRespStatus) {
         if (status == CLAIM_SUCCESS) {
           goto CompleteTask;
@@ -57,11 +55,11 @@ machine Worker {
           goto init; 
         }
       }
+
+      ignore eSubmitTaskReq;
     }
 
     state CompleteTask  {
-      ignore eSubmitTaskReq; // dedup 
-
       entry {
         if ($) {
           send task, eCompleteTaskReq, (worker = this, status = REJECTED, taskId = taskId, counter = counter);
@@ -69,8 +67,10 @@ machine Worker {
           send task, eCompleteTaskReq, (worker = this, status = RESOLVED, taskId = taskId, counter = counter);
         }
         
-        // regardless of whether the task was completed or not, we go back to the init state.
+        // Regardless of whether the task was completed or not, we go back to the init state.
         goto init; 
       }
+
+      ignore eSubmitTaskReq;
     }
 }
