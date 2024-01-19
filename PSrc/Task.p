@@ -63,7 +63,7 @@ machine Task {
 
     state WaitForClaimRequests {
         entry {
-            // Start timer to wait for claim requests.
+            // Start timer to wait for claim task requests.
             StartTimer(timer); 
         }
 
@@ -83,12 +83,12 @@ machine Task {
         }   
         
         // Can't complete a task that is not claimed.
-        ignore eCompleteTaskReq;
+       ignore eCompleteTaskReq;
     }
 
     state WaitForCompleteRequest {
         entry {
-            // Start timer to wait for complete requests.
+            // Start timer to wait for complete task requests.
             StartTimer(timer); 
         }
 

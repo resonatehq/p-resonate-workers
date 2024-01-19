@@ -9,10 +9,18 @@ This file defines two P specifications
 Checks the global invariant that the response to a task request is always correct and there is no error on the
 server side with the implementation of the task logic.
 ****************************************************/
+spec GuaranteedCorrectness observes eClaimTaskReq, eClaimTaskResp {       
+    start state Init {
+        on eClaimTaskReq do (req: tClaimTaskReq) {}
 
+        on eClaimTaskResp do (resp: tClaimTaskRespStatus) {
+            assert (resp == CLAIM_SUCCESS || resp == CLAIM_ERROR);
+        }
+    }
+}
 
 /**************************************************************************
-GuaranteedTaskProgress checks that global liveness (or progress) propety that for every 
+GuaranteedTaskProgress checks the global liveness (or progress) property that for every 
 eTaskPending raised a corresponding eTaskResolved or eTaskRejected eventually follows
 ***************************************************************************/
 spec GuaranteedTaskProgress observes ePromisePending, ePromiseResolved, ePromiseRejected  {

@@ -38,6 +38,10 @@ machine Worker {
         taskId = req.taskId; 
         counter = req.counter;
       }
+
+      on eShutDown do {
+        raise halt; 
+      }
     }
 
     state ClaimTask {
@@ -45,6 +49,12 @@ machine Worker {
         send task, eClaimTaskReq, (worker = this, taskId = taskId, counter = counter); 
         goto WaitForClaimResponse; 
       }
+
+      on eShutDown do {
+        raise halt; 
+      }
+
+      defer eSubmitTaskReq;
     }
 
     state WaitForClaimResponse {
@@ -56,7 +66,11 @@ machine Worker {
         }
       }
 
-      ignore eSubmitTaskReq;
+      on eShutDown do {
+        raise halt; 
+      }
+
+      defer eSubmitTaskReq;
     }
 
     state CompleteTask  {
@@ -71,6 +85,10 @@ machine Worker {
         goto init; 
       }
 
-      ignore eSubmitTaskReq;
+      on eShutDown do {
+        raise halt; 
+      }
+
+      defer eSubmitTaskReq;
     }
 }
