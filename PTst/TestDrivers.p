@@ -9,16 +9,20 @@ machine TaskWithMultipleWorkers {
 
 // Setup the resonate worker system with the given number of workers.
 fun SetupResonateWorkerSystemWithFailureInjector() {
-    var task: Task;  
+    var tasks: set[Task];  
     var workers: set[Worker]; 
 
-    // create two workers. 
+    // Create two workers. 
     workers += (new Worker()); 
     workers += (new Worker());
     
-    // create the failure injector   
+    // Create the failure injector for workers. 
     new FailureInjector((nodes = workers, nFailures = 1));   
+
     
-    // create a task with the given number of workers.
-    task = new Task((id = 1, w = workers, retries = 3)); 
+    // Create a task with the given number of workers.
+    tasks += (new Task((id = 1, w = workers, retries = 3))); 
+
+    // Create the failure injector for the task. 
+    new FailureInjector((nodes = tasks, nFailures = 1));
 }

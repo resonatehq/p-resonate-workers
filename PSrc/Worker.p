@@ -2,6 +2,8 @@
 
 // Payload type associated with eClaimTaskReq. 
 type tClaimTaskReq = (worker: Worker, taskId: int, counter: int); 
+// Payload type associated with eClaimTaskResp. 
+type tClaimTaskResp = (status: tClaimTaskRespStatus, worker: Worker, taskId: int, counter: int);
 // Payload type associated with eCompleteTaskReq. 
 type tCompleteTaskReq = (worker: Worker, status: tCompleteTaskRespStatus, taskId: int, counter: int);
 
@@ -20,12 +22,12 @@ enum tCompleteTaskRespStatus {
 // Event: claim task request (from worker to server). 
 event eClaimTaskReq : tClaimTaskReq;
 // Event: claim task response (from server to worker). 
-event eClaimTaskResp : tClaimTaskRespStatus; 
+event eClaimTaskResp : tClaimTaskResp; 
 // Event: task completion (from worker to server). 
 event eCompleteTaskReq : tCompleteTaskReq; 
 
 /*****************************************************************************************
-The worker state machine models the worker's protocol when receiving a task. 
+The worker state machine models the worker's stateless protocol when receiving a task. 
 ******************************************************************************************/
 machine Worker {
     var task: Task; 
@@ -39,55 +41,60 @@ machine Worker {
         counter = req.counter;
       }
 
-      on eShutDown do {
-        raise halt; 
-      }
+      // Simulate worker crash and restart.
+      on eShutDown goto init; 
+
+      ignore eClaimTaskResp;
     }
 
     state ClaimTask {
       entry {
-        send task, eClaimTaskReq, (worker = this, taskId = taskId, counter = counter); 
+        // Simulate message loss.
+        if($) {
+          send task, eClaimTaskReq, (worker = this, taskId = taskId, counter = counter);
+        }
+         
         goto WaitForClaimResponse; 
       }
 
-      on eShutDown do {
-        raise halt; 
-      }
+      // Simulate worker crash and restart.
+      on eShutDown goto init; 
 
       defer eSubmitTaskReq;
     }
 
     state WaitForClaimResponse {
-      on eClaimTaskResp do (status: tClaimTaskRespStatus) {
-        if (status == CLAIM_SUCCESS) {
+      on eClaimTaskResp do (resp: tClaimTaskResp) {
+        if (resp.status == CLAIM_SUCCESS) {
           goto CompleteTask;
         } else {
           goto init; 
         }
       }
 
-      on eShutDown do {
-        raise halt; 
-      }
+      // Simulate worker crash and restart.
+      on eShutDown goto init; 
 
       defer eSubmitTaskReq;
     }
 
     state CompleteTask  {
       entry {
-        if ($) {
-          send task, eCompleteTaskReq, (worker = this, status = REJECTED, taskId = taskId, counter = counter);
-        } else {
-          send task, eCompleteTaskReq, (worker = this, status = RESOLVED, taskId = taskId, counter = counter);
+        // Simulates message loss.
+        if($) { 
+          if ($) {
+            send task, eCompleteTaskReq, (worker = this, status = REJECTED, taskId = taskId, counter = counter);
+          } else {
+            send task, eCompleteTaskReq, (worker = this, status = RESOLVED, taskId = taskId, counter = counter);
+          }
         }
         
-        // Regardless of whether the task was completed or not, we go back to the init state.
+        // Regardless of whether the task was completed or not, we go back to the init state to wait for another task.
         goto init; 
       }
 
-      on eShutDown do {
-        raise halt; 
-      }
+      // Simulate worker crash and restart.
+      on eShutDown goto init; 
 
       defer eSubmitTaskReq;
     }

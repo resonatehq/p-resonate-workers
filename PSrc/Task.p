@@ -2,16 +2,22 @@
 
 // Payload type associated with eSubmitTaskReq. 
 type tSubmitTaskReq = (task: Task, taskId: int, counter: int); 
+// Payload type associated with eDBWrite. 
+type tDBWrite = (taskId: int, counter: int);
 
 // Event: submit available task request (from server to client) 
 event eSubmitTaskReq : tSubmitTaskReq; 
 // Event: task is pending 
-event ePromisePending;
+event ePromisePending: int;
 // Event: task is rejected
-event ePromiseRejected; 
+event ePromiseRejected: int; 
 // Event: task is resolved
-event ePromiseResolved; 
+event ePromiseResolved: int; 
+// Event: db write 
+event eDBWrite: tDBWrite;
 
+// todo: simulate message loss. 
+// todo: null ? 
 
 /*****************************************************************************************
 The task state machine models the behavior of a resonate task that is submitted to a 
@@ -19,38 +25,91 @@ set of workers to be completed. The task state machine is responsible for keepin
 of the number of retries and timers. 
 ******************************************************************************************/
 machine Task {    
+    // Volatile memory. 
+    var numOfRetriesAvailable : int;
+    var i : int;
+
+    // Durable storage. 
+    var timer: Timer; 
+    var electedWorker: any;
     var taskId : int;
     var taskCounter : int;
     var workers : set[Worker];  
-    var numOfRetries : int;
-    var timer: Timer; 
-    var i : int;
+    var totalNumOfRetries : int;
+    var completedState: any; 
 
     // Every task starts in the init state.
     start state init {
         entry (config: (id: int, w: set[Worker], retries: int)) {
             taskId = config.id; 
             workers = config.w;
-            numOfRetries = config.retries;
+            numOfRetriesAvailable = config.retries;
+            totalNumOfRetries = config.retries;
             taskCounter = -1;
             timer = CreateTimer(this); 
+            completedState = null; 
 
-            announce ePromisePending; 
+            announce ePromisePending, taskId; 
             
-            goto TaskPending; 
+            goto TaskPendingWriteToDB; 
         }
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
     } 
 
-    state TaskPending {
+    state Recovery {
+        // On recovery reset all volatile state. Not gonna decrement retries in the db (too many writes). 
         entry {
-            // Keep track of the number of retries.
-            if (numOfRetries == 0) {
-                goto TaskRejected;
+            numOfRetriesAvailable = totalNumOfRetries;
+            i = 0; 
+
+            if (completedState == RESOLVED) {
+                goto TaskResolved;
             } 
-            numOfRetries = numOfRetries - 1;
+            if (completedState == REJECTED) {
+                goto TaskRejected;
+            }
+
+            goto TaskPendingWriteToDB;
+        }
+
+        // Simulate complete task timeout.
+        on eTimeOut goto TaskPendingWriteToDB with {
+            electedWorker = null;
+        }  
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
+    }
+
+    state TaskPendingWriteToDB {
+	    entry {
+		    // Keep track of the number of retries. (volatile memory) 
+            if (numOfRetriesAvailable == 0) {
+	                goto TaskRejected;
+            } 
+            numOfRetriesAvailable = numOfRetriesAvailable - 1;
+
+            // Simulate database write. 
             taskCounter = taskCounter + 1;
-            
-            // Send task to all workers.
+            announce eDBWrite, (taskId = taskId, counter = taskCounter); 
+
+            goto TaskPendingWriteToQueue; 
+        }
+
+        // Simulate complete task timeout.
+        on eTimeOut goto TaskPendingWriteToDB with {
+            electedWorker = null;
+        }  
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
+    }
+
+    state TaskPendingWriteToQueue {
+        // Send task to all workers.
+        entry {
             i = 0; 
             while (i < sizeof(workers)) {
                 send workers[i], eSubmitTaskReq, (task = this, taskId = taskId, counter = taskCounter); 
@@ -59,31 +118,43 @@ machine Task {
 
             goto WaitForClaimRequests; 
         }
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
     }
 
     state WaitForClaimRequests {
+        // Start timer to wait for claim task requests.
         entry {
-            // Start timer to wait for claim task requests.
             StartTimer(timer); 
         }
 
-        on eTimeOut goto TaskPending with {}  
+        // Simulate claim task timeout.
+        on eTimeOut goto TaskPendingWriteToDB with {
+            electedWorker = null;
+        }  
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
 
         on eClaimTaskReq do (req: tClaimTaskReq) {
-            if (req.taskId == taskId && req.counter == taskCounter){
+            if ((electedWorker == null || req.worker == electedWorker) && req.taskId == taskId && req.counter == taskCounter){
                 // Worker claimed the task in time so cancel the timer.
                 CancelTimer(timer);
-                send req.worker, eClaimTaskResp, (CLAIM_SUCCESS);     
-                
+                electedWorker = req.worker; // write to "db" before sending response.
+                send req.worker, eClaimTaskResp, (status = CLAIM_SUCCESS, worker = req.worker, taskId = req.taskId, counter = req.counter);     
+
                 goto WaitForCompleteRequest;
             }
 
             // Worker gave the wrong task id or counter so reject the claim request.
-            send req.worker, eClaimTaskResp, (CLAIM_ERROR); 
+            send req.worker, eClaimTaskResp, (status = CLAIM_ERROR, worker = req.worker, taskId = req.taskId, counter = req.counter); 
         }   
         
         // Can't complete a task that is not claimed.
        ignore eCompleteTaskReq;
+
+       // todo: exit 
     }
 
     state WaitForCompleteRequest {
@@ -92,10 +163,20 @@ machine Task {
             StartTimer(timer); 
         }
 
-        on eTimeOut goto TaskPending with {}  
+        // Simulate complete task timeout.
+        on eTimeOut goto TaskPendingWriteToDB with {
+            electedWorker = null;
+        }  
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
 
         on eClaimTaskReq do (req: tClaimTaskReq) {
-            send req.worker, eClaimTaskResp, (CLAIM_ERROR); 
+            if (req.worker == electedWorker && taskId == req.taskId && taskCounter == req.counter) {
+                send req.worker, eClaimTaskResp, (status = CLAIM_SUCCESS, worker = req.worker, taskId = req.taskId, counter = req.counter);     
+            } else {
+                send req.worker, eClaimTaskResp, (status = CLAIM_ERROR, worker = req.worker, taskId = req.taskId, counter = req.counter); 
+            }
         } 
 
        on eCompleteTaskReq do (req: tCompleteTaskReq) {
@@ -109,19 +190,28 @@ machine Task {
                 }
 
                 // Worker rejected the task. attempt to retry.
-                goto TaskPending;
+                goto TaskPendingWriteToDB;
             }
         }
+
+        // todo: exit
     }
     
     state TaskResolved {
         entry { 
-            announce ePromiseResolved;
+            if (completedState == null) {
+                announce ePromiseResolved, taskId;
+                completedState = RESOLVED;
+            }
         }
 
+        // Can't claim a task that is resolved.
         on eClaimTaskReq do (req: tClaimTaskReq) {
-            send req.worker, eClaimTaskResp, (CLAIM_ERROR); 
+            send req.worker, eClaimTaskResp, (status = CLAIM_ERROR, worker = req.worker, taskId = req.taskId, counter = req.counter); 
         } 
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
 
         // Can't do anything else with this task once it is resolved.
         ignore eCompleteTaskReq, eTimeOut;
@@ -129,13 +219,20 @@ machine Task {
 
     state TaskRejected {
         entry {
-            announce ePromiseRejected;
+            if (completedState == null) {
+                announce ePromiseRejected, taskId;
+                completedState = REJECTED;
+            }
         }
 
+        // Can't claim a task that is rejected.
         on eClaimTaskReq do (req: tClaimTaskReq) {
-            send req.worker, eClaimTaskResp, (CLAIM_ERROR); 
+            send req.worker, eClaimTaskResp, (status = CLAIM_ERROR, worker = req.worker, taskId = req.taskId, counter = req.counter); 
         } 
-
+        
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
+        
         // Can't do anything else with this task once it is rejected. 
         ignore eCompleteTaskReq, eTimeOut;
     }

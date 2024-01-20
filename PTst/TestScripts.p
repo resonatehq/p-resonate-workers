@@ -1,3 +1,3 @@
 // asserts the liveness monitor
 test tcTaskWithMultipleWorkers [main = TaskWithMultipleWorkers]: 
-    assert GuaranteedCorrectness, GuaranteedTaskProgress in (union TaskWorkerProtocol, { TaskWithMultipleWorkers });
+    assert GuaranteedServerCorrectness, GuaranteedTaskProgress in (union TaskWorkerProtocol, { TaskWithMultipleWorkers });

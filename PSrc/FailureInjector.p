@@ -1,10 +1,13 @@
-/*
-The failure injector machine randomly selects a replica machine and enqueues the special event "halt".
-*/
+/* User Defined Events */
+
+// event: event sent by the failure injector to delay a node failure
 event eDelayNodeFailure;
 // event: event sent by the failure injector to shutdown a node
 event eShutDown: machine;
 
+/*****************************************************************************************
+The failure injector machine randomly selects a replica machine and enqueues the special event "halt". 
+******************************************************************************************/
 machine FailureInjector {
   var nFailures: int;
   var nodes: set[machine];
@@ -13,7 +16,7 @@ machine FailureInjector {
     entry (config: (nodes: set[machine], nFailures: int)) {
       nFailures = config.nFailures;
       nodes = config.nodes;
-      assert nFailures < sizeof(nodes);
+      assert nFailures <= sizeof(nodes); // can be equal since we restart not halt
       goto FailOneNode;
     }
   }
