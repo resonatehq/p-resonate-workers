@@ -3,7 +3,7 @@
 // Payload type associated with eSubmitTaskReq. 
 type tSubmitTaskReq = (task: Task, taskId: int, counter: int); 
 // Payload type associated with eDBWrite. 
-type tDBWrite = (taskId: int, counter: int);
+type tDBWrite = (worker: any, taskId: int, counter: int);
 
 // Event: submit available task request (from server to client) 
 event eSubmitTaskReq : tSubmitTaskReq; 
@@ -41,16 +41,19 @@ machine Task {
     // Every task starts in the init state.
     start state init {
         entry (config: (id: int, w: set[Worker], retries: int)) {
-            taskId = config.id; 
-            workers = config.w;
+            // Volatile state.
             numOfRetriesAvailable = config.retries;
-            totalNumOfRetries = config.retries;
-            taskCounter = -1;
+
+            // Durable state. 
             timer = CreateTimer(this); 
+            electedWorker = null;
+            taskId = config.id; 
+            taskCounter = -1;
+            workers = config.w;
+            totalNumOfRetries = config.retries;
             completedState = null; 
 
             announce ePromisePending, taskId; 
-            
             goto TaskPendingWriteToDB; 
         }
 
@@ -61,6 +64,7 @@ machine Task {
     state Recovery {
         // On recovery reset all volatile state. Not gonna decrement retries in the db (too many writes). 
         entry {
+            // Simulate database read.
             numOfRetriesAvailable = totalNumOfRetries;
             i = 0; 
 
@@ -91,9 +95,9 @@ machine Task {
             } 
             numOfRetriesAvailable = numOfRetriesAvailable - 1;
 
-            // Simulate database write. 
+            // Simulate database write
             taskCounter = taskCounter + 1;
-            announce eDBWrite, (taskId = taskId, counter = taskCounter); 
+            announce eDBWrite, (worker = electedWorker, taskId = taskId, counter = taskCounter); 
 
             goto TaskPendingWriteToQueue; 
         }
@@ -141,10 +145,11 @@ machine Task {
             if ((electedWorker == null || req.worker == electedWorker) && req.taskId == taskId && req.counter == taskCounter){
                 // Worker claimed the task in time so cancel the timer.
                 CancelTimer(timer);
-                electedWorker = req.worker; // write to "db" before sending response.
-                send req.worker, eClaimTaskResp, (status = CLAIM_SUCCESS, worker = req.worker, taskId = req.taskId, counter = req.counter);     
-
-                goto WaitForCompleteRequest;
+                
+                // Write to "db" before sending response.
+                electedWorker = req.worker; 
+                announce eDBWrite, (worker = electedWorker, taskId = taskId, counter = taskCounter); 
+                goto RespondToClaimRequest, (status = CLAIM_SUCCESS, worker = req.worker, taskId = req.taskId, counter = req.counter);
             }
 
             // Worker gave the wrong task id or counter so reject the claim request.
@@ -153,8 +158,21 @@ machine Task {
         
         // Can't complete a task that is not claimed.
        ignore eCompleteTaskReq;
+    }
 
-       // todo: exit 
+    state RespondToClaimRequest {
+        entry (req: tClaimTaskResp)  {
+            send req.worker, eClaimTaskResp, (status = req.status, worker = req.worker, taskId = req.taskId, counter = req.counter);     
+            goto WaitForCompleteRequest;
+        }
+
+         // Simulate claim task timeout.
+         on eTimeOut goto TaskPendingWriteToDB with {
+            electedWorker = null;
+        }  
+
+        // Simulate server crash and restart.
+        on eShutDown goto Recovery with {}
     }
 
     state WaitForCompleteRequest {
@@ -172,7 +190,7 @@ machine Task {
         on eShutDown goto Recovery with {}
 
         on eClaimTaskReq do (req: tClaimTaskReq) {
-            if (req.worker == electedWorker && taskId == req.taskId && taskCounter == req.counter) {
+            if (req.worker == electedWorker && taskId == req.taskId && taskCounter == req.counter) {  
                 send req.worker, eClaimTaskResp, (status = CLAIM_SUCCESS, worker = req.worker, taskId = req.taskId, counter = req.counter);     
             } else {
                 send req.worker, eClaimTaskResp, (status = CLAIM_ERROR, worker = req.worker, taskId = req.taskId, counter = req.counter); 
@@ -193,8 +211,6 @@ machine Task {
                 goto TaskPendingWriteToDB;
             }
         }
-
-        // todo: exit
     }
     
     state TaskResolved {

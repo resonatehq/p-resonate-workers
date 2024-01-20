@@ -15,7 +15,7 @@ server side with the implementation of the task logic.
 ****************************************************/
 // todo: handle multiple tasks. 
 spec GuaranteedServerCorrectness observes eDBWrite, eTimeOut, eClaimTaskResp, ePromisePending, ePromiseResolved, ePromiseRejected {
-    var registry: map[int, (bool, bool)]; // map[taskId: (pending, resolved | rejected)]
+    var registry: map[int, bool]; // map[taskId: isComplete]
     var electedWorker: any; 
     var taskId: int; 
     var currCounter: int; 
@@ -28,8 +28,11 @@ spec GuaranteedServerCorrectness observes eDBWrite, eTimeOut, eClaimTaskResp, eP
     }
 
     state WaitForEvents {
+        /* Invariant: only one worker can claim a task. */
+
         // Database is the source of truth for the current task id and counter.
         on eDBWrite do (req: tDBWrite) {
+            electedWorker = req.worker;
             taskId = req.taskId; 
             currCounter = req.counter; 
         }
@@ -47,40 +50,39 @@ spec GuaranteedServerCorrectness observes eDBWrite, eTimeOut, eClaimTaskResp, eP
                 if (electedWorker == null) {
                     electedWorker = resp.worker;
                 } else {
-                    assert (electedWorker == resp.worker); 
+                    assert (electedWorker == resp.worker);  // todo: check if this is the right way to do it.
                 }
 	            assert (resp.taskId == taskId); 
                 assert (resp.counter == currCounter);
             } else {
                 // make sure the server didn't make a mistake and reject the claim when it should have accepted it.    
                 // should always return claim error if the task is already completed.        
-                if (registry[taskId].1 == false) {
+                if (registry[taskId] == false) {
                     assert (resp.worker != electedWorker || (resp.taskId != taskId || resp.counter != currCounter));
                 } 
             }
         } 
 
-        // Guarantee that a task is completed only once.
+        /* Invariant: a task is completed only once. */
+
         on ePromisePending do (taskId: int)  {
             assert (taskId in registry == false);
 
-            registry[taskId] = (true, false);
+            registry[taskId] = false;
         }
 
         on ePromiseResolved do (taskId: int) {
             assert (taskId in registry); 
-            assert (registry[taskId].0 == true);
-            assert (registry[taskId].1 == false);
+            assert (registry[taskId] == false);
             
-            registry[taskId] = (true, true);
+            registry[taskId] = true;
         }
 
         on ePromiseRejected do (taskId: int) {
             assert (taskId in registry); 
-            assert (registry[taskId].0 == true);
-            assert (registry[taskId].1 == false); 
+            assert (registry[taskId] == false);
 
-            registry[taskId] = (true, true);
+            registry[taskId] = true;
         }
     }
 }
