@@ -78,10 +78,8 @@ spec GuaranteedServerCorrectness observes eDBWrite, eTaskTimeOut, eClaimTaskResp
             } 
 
             if (resp.status == CLAIM_ERROR) { 
-                if (resp.taskId in registry) {
-                    if (registry[resp.taskId].isComplete == false) {
-                        assert (resp.worker != registry[resp.taskId].electedWorker || resp.counter != registry[resp.taskId].currCounter);
-                    } 
+                if (resp.taskId in registry && registry[resp.taskId].isComplete == false) {
+                     assert (resp.worker != registry[resp.taskId].electedWorker || resp.counter != registry[resp.taskId].currCounter);
                 }
             }
         } 
