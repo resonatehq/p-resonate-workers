@@ -13,77 +13,78 @@ server side with the implementation of the task logic.
     1. A task is completed only once. (ePending == eResolved + eRejected)
     2. Only one worker can claim a task at a time and they must claim it with the latest taskId and counter.
 ****************************************************/
-// todo: handle multiple tasks. 
-spec GuaranteedServerCorrectness observes eDBWrite, eTimeOut, eClaimTaskResp, ePromisePending, ePromiseResolved, ePromiseRejected {
-    var registry: map[int, bool]; // map[taskId: isComplete]
-    var electedWorker: any; 
-    var taskId: int; 
-    var currCounter: int; 
+
+type tRecord = (isComplete: bool, electedWorker: any, currCounter: int); 
+
+spec GuaranteedServerCorrectness observes eDBWrite, eTaskTimeOut, eClaimTaskResp, ePromisePending, ePromiseResolved, ePromiseRejected {
+    var registry: map[int, tRecord];
 
     start state Init {
         entry {
-            electedWorker = null; 
             goto WaitForEvents; 
         }
     }
 
     state WaitForEvents {
-        /* Invariant: only one worker can claim a task. */
+         /* Invariant: a task is completed only once. */
 
-        // Database is the source of truth for the current task id and counter.
-        on eDBWrite do (req: tDBWrite) {
-            electedWorker = req.worker;
-            taskId = req.taskId; 
-            currCounter = req.counter; 
-        }
-
-        // If the task timesout, it should reset the elected worker. todo: release on global timeout or any timeout ? 
-        on eTimeOut do {
-            electedWorker = null;
-        }
-
-        on eClaimTaskResp do (resp: tClaimTaskResp) {
-            assert (taskId in registry);
-            assert (resp.status == CLAIM_SUCCESS || resp.status == CLAIM_ERROR); 
-
-            if (resp.status == CLAIM_SUCCESS) {
-                if (electedWorker == null) {
-                    electedWorker = resp.worker;
-                } else {
-                    assert (electedWorker == resp.worker);  // todo: check if this is the right way to do it.
-                }
-	            assert (resp.taskId == taskId); 
-                assert (resp.counter == currCounter);
-            } else {
-                // make sure the server didn't make a mistake and reject the claim when it should have accepted it.    
-                // should always return claim error if the task is already completed.        
-                if (registry[taskId] == false) {
-                    assert (resp.worker != electedWorker || (resp.taskId != taskId || resp.counter != currCounter));
-                } 
-            }
-        } 
-
-        /* Invariant: a task is completed only once. */
-
-        on ePromisePending do (taskId: int)  {
+         on ePromisePending do (taskId: int)  {
             assert (taskId in registry == false);
 
-            registry[taskId] = false;
+            registry[taskId] = (isComplete = false, electedWorker =  null, currCounter = 0);
         }
 
         on ePromiseResolved do (taskId: int) {
             assert (taskId in registry); 
-            assert (registry[taskId] == false);
+            assert (registry[taskId].isComplete == false);
             
-            registry[taskId] = true;
+            registry[taskId].isComplete = true;
         }
 
         on ePromiseRejected do (taskId: int) {
             assert (taskId in registry); 
-            assert (registry[taskId] == false);
+            assert (registry[taskId].isComplete == false);
 
-            registry[taskId] = true;
+            registry[taskId].isComplete = true;
         }
+
+        /* Invariant: only one worker can claim a task. */
+
+        // Database is the source of truth for the current task id and counter.
+        on eDBWrite do (req: tDBWrite) {
+            assert (req.taskId in registry); 
+
+            registry[req.taskId].electedWorker = req.worker;
+            registry[req.taskId].currCounter = req.counter;            
+        }
+
+        // If the task timesout, it should reset the elected worker. todo: release on global timeout or any timeout ? 
+        on eTaskTimeOut do (taskId: int) {
+            registry[taskId].electedWorker = null;
+        }
+
+        on eClaimTaskResp do (resp: tClaimTaskResp) {
+            assert (resp.status == CLAIM_SUCCESS || resp.status == CLAIM_ERROR); 
+
+            if (resp.status == CLAIM_SUCCESS) {
+                assert (resp.taskId in registry);
+                assert (resp.counter == registry[resp.taskId].currCounter);
+
+                if (registry[resp.taskId].electedWorker == null) {
+                    registry[resp.taskId].electedWorker = resp.worker;
+                } else {
+                    assert (registry[resp.taskId].electedWorker == resp.worker); 
+                }
+            } 
+
+            if (resp.status == CLAIM_ERROR) { 
+                if (resp.taskId in registry) {
+                    if (registry[resp.taskId].isComplete == false) {
+                        assert (resp.worker != registry[resp.taskId].electedWorker || resp.counter != registry[resp.taskId].currCounter);
+                    } 
+                }
+            }
+        } 
     }
 }
 

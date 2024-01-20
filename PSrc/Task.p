@@ -15,6 +15,8 @@ event ePromiseRejected: int;
 event ePromiseResolved: int; 
 // Event: db write 
 event eDBWrite: tDBWrite;
+// Event: task timeedout 
+event eTaskTimeOut: int;
 
 // todo: simulate message loss. 
 // todo: null ? 
@@ -81,6 +83,7 @@ machine Task {
         // Simulate complete task timeout.
         on eTimeOut goto TaskPendingWriteToDB with {
             electedWorker = null;
+            announce eTaskTimeOut, taskId;
         }  
 
         // Simulate server crash and restart.
@@ -105,6 +108,7 @@ machine Task {
         // Simulate complete task timeout.
         on eTimeOut goto TaskPendingWriteToDB with {
             electedWorker = null;
+            announce eTaskTimeOut, taskId;
         }  
 
         // Simulate server crash and restart.
@@ -136,6 +140,7 @@ machine Task {
         // Simulate claim task timeout.
         on eTimeOut goto TaskPendingWriteToDB with {
             electedWorker = null;
+            announce eTaskTimeOut, taskId;
         }  
 
         // Simulate server crash and restart.
@@ -169,6 +174,7 @@ machine Task {
          // Simulate claim task timeout.
          on eTimeOut goto TaskPendingWriteToDB with {
             electedWorker = null;
+            announce eTaskTimeOut, taskId;
         }  
 
         // Simulate server crash and restart.
@@ -184,6 +190,7 @@ machine Task {
         // Simulate complete task timeout.
         on eTimeOut goto TaskPendingWriteToDB with {
             electedWorker = null;
+            announce eTaskTimeOut, taskId;
         }  
 
         // Simulate server crash and restart.
