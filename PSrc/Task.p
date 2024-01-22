@@ -96,7 +96,8 @@ machine Task {
             } 
             numOfRetriesAvailable = numOfRetriesAvailable - 1;
 
-            // Simulate database write
+            // Simulate database write. Reset the elected worker and update task counter on recovery path.
+            electedWorker = null;
             taskCounter = taskCounter + 1;
             announce eDBWrite, (worker = electedWorker, taskId = taskId, counter = taskCounter); 
 
@@ -203,7 +204,7 @@ machine Task {
         } 
 
        on eCompleteTaskReq do (req: tCompleteTaskReq) {
-            if (req.taskId == taskId && req.counter == taskCounter){
+            if (req.worker == electedWorker && req.taskId == taskId && req.counter == taskCounter){
                 // Worker complete the task in time so cancel the timer.
                 CancelTimer(timer);
 
