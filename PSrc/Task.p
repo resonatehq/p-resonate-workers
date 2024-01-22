@@ -18,8 +18,6 @@ event eDBWrite: tDBWrite;
 // Event: task timeedout 
 event eTaskTimeOut: int;
 
-// todo: simulate message loss. 
-// todo: null ? 
 
 /*****************************************************************************************
 The task state machine models the behavior of a resonate task that is submitted to a 
@@ -120,7 +118,7 @@ machine Task {
         entry {
             i = 0; 
             while (i < sizeof(workers)) {
-                send workers[i], eSubmitTaskReq, (task = this, taskId = taskId, counter = taskCounter); 
+                send choose(workers), eSubmitTaskReq, (task = this, taskId = taskId, counter = taskCounter); 
                 i = i + 1;
             }
 

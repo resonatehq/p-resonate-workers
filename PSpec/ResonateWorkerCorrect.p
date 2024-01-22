@@ -10,7 +10,7 @@ Checks the global invariant that the response to a task request is always correc
 server side with the implementation of the task logic.
 
 2 invariants:
-    1. A task is completed only once. (ePending == eResolved + eRejected)
+    1. A task is completed only once.
     2. Only one worker can claim a task at a time and they must claim it with the latest taskId and counter.
 ****************************************************/
 
@@ -58,7 +58,7 @@ spec GuaranteedServerCorrectness observes eDBWrite, eTaskTimeOut, eClaimTaskResp
             registry[req.taskId].currCounter = req.counter;            
         }
 
-        // If the task timesout, it should reset the elected worker. todo: release on global timeout or any timeout ? 
+        // If the task timesout, it should reset the elected worker.  
         on eTaskTimeOut do (taskId: int) {
             registry[taskId].electedWorker = null;
         }
