@@ -96,9 +96,9 @@ machine Task {
             } 
             numOfRetriesAvailable = numOfRetriesAvailable - 1;
 
-            // Simulate database write
+            // Simulate database write. Always reset the elected worker and update the task counter.
             taskCounter = taskCounter + 1;
-            announce eDBWrite, (worker = electedWorker, taskId = taskId, counter = taskCounter); 
+            announce eDBWrite, (worker = null, taskId = taskId, counter = taskCounter); 
 
             goto TaskPendingWriteToQueue; 
         }
@@ -203,7 +203,7 @@ machine Task {
         } 
 
        on eCompleteTaskReq do (req: tCompleteTaskReq) {
-            if (req.taskId == taskId && req.counter == taskCounter){
+            if (req.worker == electedWorker && req.taskId == taskId && req.counter == taskCounter){  
                 // Worker complete the task in time so cancel the timer.
                 CancelTimer(timer);
 
